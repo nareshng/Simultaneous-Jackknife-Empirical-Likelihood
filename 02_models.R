@@ -1,5 +1,5 @@
 # 02_models.R
-# Deterministic base-R classifiers used in the urinary-biomarker application.
+# base classifiers used in the urinary-biomarker application.
 # No test observation is used to estimate transformations, tune hyperparameters,
 # or fit a classifier.
 
