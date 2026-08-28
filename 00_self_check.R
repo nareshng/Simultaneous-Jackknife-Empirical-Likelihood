@@ -1,5 +1,4 @@
 # 00_self_check.R
-# Lightweight implementation and data-integrity checks.
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
 if (is.na(script_file) || !nzchar(script_file)) {
