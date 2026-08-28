@@ -28,7 +28,6 @@ The inferential target is conditional on the fitted scoring rules. Training-samp
 | `R/06_make_figures.R` | Regeneration of the four manuscript figures from result tables |
 | `R/99_run_all.R` | Driver for real-data, diagnostic, and manuscript-scale workflows |
 
-The eight R files are complementary; none is an obsolete duplicate.
 
 ## Software requirements
 
@@ -124,7 +123,7 @@ Scripts create `results/` and `figures/` as needed. Principal outputs include:
 - omnibus and pairwise JEL results; and
 - PNG versions of the four manuscript figures.
 
-Large replicate-level result files should normally be archived separately rather than committed to the main source tree. The exact aggregate tables, metadata, and final figures used in the manuscript should nevertheless be retained in a tagged release or archival deposit.
+
 
 ## Important implementation note
 
@@ -144,6 +143,4 @@ Please cite the accompanying simultaneous-inference manuscript when a public bib
 
 > Garg N, Mathew L, Dewan I, Kattumannil SK. (2024; revised 2025). Jackknife empirical likelihood method for U statistics based on multivariate samples and its applications. arXiv:2408.14038v2. https://doi.org/10.48550/arXiv.2408.14038
 
-## License
 
-No software license is currently included. Add an explicit license before publication or archival; without one, reuse rights remain restricted by default copyright law.
