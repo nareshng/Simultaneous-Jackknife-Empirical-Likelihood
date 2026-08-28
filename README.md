@@ -90,8 +90,8 @@ The full workflow uses 5,000 replications for each main simulation scenario, 2,0
 | `B_MULT` | `2000` | Multiplier draws per simulation replication |
 | `MC_CORES` | `1` | Parallel workers on non-Windows systems |
 | `ALPHA` | `0.05` | Nominal test level |
-| `SIM_SEED` | `20260826` | Main simulation seed |
-| `INT_SEED` | `20260827` | Interval simulation seed |
+| `SIM_SEED` | `2026` | Main simulation seed |
+| `INT_SEED` | `2026` | Interval simulation seed |
 | `OUTPUT_SUFFIX` | `_R` | Suffix added to regenerated output files |
 
 ## Outputs
