@@ -1,5 +1,5 @@
 # 06_make_figures.R
-# Regenerate the four manuscript figures from CSV result files using base R.
+# Figures from CSV result files using base R.
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
 if (is.na(script_file) || !nzchar(script_file)) {
