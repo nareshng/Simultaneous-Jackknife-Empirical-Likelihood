@@ -2,7 +2,6 @@
 # Reproduction driver.
 #
 #   Rscript R/99_run_all.R real   # real-data application only
-#   Rscript R/99_run_all.R quick  # small diagnostic simulation
 #   Rscript R/99_run_all.R full   # manuscript-scale simulation (HPC recommended)
 
 args <- commandArgs(trailingOnly=TRUE)
