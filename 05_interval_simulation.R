@@ -2,9 +2,8 @@
 # Simultaneous confidence-interval coverage and length.
 #
 # Manuscript run:
-#   B_MULT=1999 MC_CORES=8 Rscript R/05_interval_simulation.R
-# Override all scenario replication counts with, for example:
-#   INT_REPS=100 Rscript R/05_interval_simulation.R
+#   B_MULT=2000 
+
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
 if (is.na(script_file) || !nzchar(script_file)) {
@@ -17,9 +16,9 @@ source(file.path(package_root, "R", "01_jel_core.R"))
 results_dir <- file.path(package_root, "results")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
-Bmult <- as.integer(Sys.getenv("B_MULT", "1999"))
+Bmult <- as.integer(Sys.getenv("B_MULT", "2000"))
 cores <- as.integer(Sys.getenv("MC_CORES", "1"))
-master_seed <- as.integer(Sys.getenv("INT_SEED", "20260827"))
+master_seed <- as.integer(Sys.getenv("INT_SEED", "2026"))
 suffix <- Sys.getenv("OUTPUT_SUFFIX", "_R")
 override_reps <- Sys.getenv("INT_REPS", "")
 
