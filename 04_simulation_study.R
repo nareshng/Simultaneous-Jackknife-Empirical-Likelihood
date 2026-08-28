@@ -1,14 +1,10 @@
 # 04_simulation_study.R
-# Manuscript-grade stress simulations for global and simultaneous JEL inference.
+# simulations for global and simultaneous JEL inference.
 #
 # Full manuscript run (computationally intensive):
-#   R_REPS=5000 B_MULT=1999 MC_CORES=8 Rscript R/04_simulation_study.R
+#   R_REPS=5000 B_MULT=2000 
 #
-# Quick diagnostic run:
-#   R_REPS=200 B_MULT=399 MC_CORES=2 Rscript R/04_simulation_study.R
-#
-# The script saves replicate-level diagnostics, aggregate estimates, Monte Carlo
-# standard errors, numerical-failure counts, and the full scenario registry.
+
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
 if (is.na(script_file) || !nzchar(script_file)) {
@@ -22,10 +18,10 @@ results_dir <- file.path(package_root, "results")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
 Rreps <- as.integer(Sys.getenv("R_REPS", "5000"))
-Bmult <- as.integer(Sys.getenv("B_MULT", "1999"))
+Bmult <- as.integer(Sys.getenv("B_MULT", "2000"))
 cores <- as.integer(Sys.getenv("MC_CORES", "1"))
 alpha <- as.numeric(Sys.getenv("ALPHA", "0.05"))
-master_seed <- as.integer(Sys.getenv("SIM_SEED", "20260826"))
+master_seed <- as.integer(Sys.getenv("SIM_SEED", "2026"))
 suffix <- Sys.getenv("OUTPUT_SUFFIX", "_R")
 
 scenario <- function(id, description, K, ns, rho, distribution, d, alternative = FALSE) {
