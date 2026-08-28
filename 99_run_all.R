@@ -30,7 +30,7 @@ if (mode=="real") {
       env=c("RETUNE=true","REAL_B_MULT=19999","OUTPUT_SUFFIX=_R"))
 } else if (mode=="quick") {
   common <- c(
-    "RETUNE=false","REAL_B_MULT=399","R_REPS=200","B_MULT=399",
+    "RETUNE=false","REAL_B_MULT=399","R_REPS=200","B_MULT=400",
     "INT_REPS=50","MC_CORES=1","OUTPUT_SUFFIX=_quick"
   )
   run("03_real_data_application.R",env=common)
@@ -39,7 +39,7 @@ if (mode=="real") {
   run("06_make_figures.R",env=common)
 } else {
   common <- c(
-    "RETUNE=true","REAL_B_MULT=19999","R_REPS=5000","B_MULT=1999",
+    "RETUNE=true","REAL_B_MULT=19999","R_REPS=5000","B_MULT=2000",
     paste0("MC_CORES=",Sys.getenv("MC_CORES","1")),"OUTPUT_SUFFIX=_R"
   )
   run("03_real_data_application.R",env=common)
