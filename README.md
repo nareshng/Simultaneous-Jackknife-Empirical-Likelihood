@@ -60,13 +60,7 @@ The integrity check expects 590 observations, cohort sizes 332 and 258, and coho
 
 ## Running the analysis
 
-Clone the repository and install the data before running the checks:
 
-```bash
-git clone https://github.com/nareshng/Simultaneous-Jackknife-Empirical-Likelihood.git
-cd Simultaneous-Jackknife-Empirical-Likelihood
-Rscript R/00_self_check.R
-```
 
 Run only the real-data application:
 
@@ -74,28 +68,16 @@ Run only the real-data application:
 Rscript R/99_run_all.R real
 ```
 
-Run a reduced diagnostic analysis:
 
-```bash
-Rscript R/99_run_all.R quick
-```
-
-The diagnostic mode uses 200 replications, 400 multiplier draws, 50 interval replications, one core, and the manuscript-selected classifier hyperparameters. It tests the workflow but does not repeat hyperparameter selection at full scale.
-
-Run the manuscript-scale analysis:
+Run the manuscript analysis:
 
 ```bash
 MC_CORES=8 Rscript R/99_run_all.R full
 ```
 
-The full workflow uses 5,000 replications for each main simulation scenario, 2,000 multiplier draws per simulation replication, and 20,000 multiplier draws for the real-data analysis. It is computationally intensive. On Windows, the simulation runs serially because `parallel::mclapply()` is unavailable.
+The full workflow uses 5,000 replications for each main simulation scenario, 2,000 multiplier draws per simulation replication, and 20,000 multiplier draws for the real-data analysis. It is computationally intensive.
 
-Individual scripts can also be run directly. For example:
 
-```bash
-R_REPS=200 B_MULT=400 MC_CORES=2 OUTPUT_SUFFIX=_check \
-  Rscript R/04_simulation_study.R
-```
 
 ## Configuration
 
