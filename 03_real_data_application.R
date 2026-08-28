@@ -3,12 +3,7 @@
 # cohort 1 is used only for preprocessing, tuning, and model fitting;
 # cohort 2 is retained as a common independent evaluation sample.
 #
-# Run from the package root:
-#   Rscript R/03_real_data_application.R
-# Optional environment variables:
-#   RETUNE=true|false       (default true)
-#   REAL_B_MULT=19999       multiplier draws for max-JEL
-#   OUTPUT_SUFFIX=_R        suffix added to recomputed output files
+
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
 if (is.na(script_file) || !nzchar(script_file)) {
@@ -28,7 +23,7 @@ dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 retune <- tolower(Sys.getenv("RETUNE", "true")) %in% c("1", "true", "yes")
 Bmult <- as.integer(Sys.getenv("REAL_B_MULT", "19999"))
 suffix <- Sys.getenv("OUTPUT_SUFFIX", "_R")
-seed <- 20260826L
+seed <- 2026L
 
 dat <- utils::read.csv(data_file, stringsAsFactors = FALSE, check.names = FALSE)
 required <- c(
