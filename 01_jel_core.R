@@ -1,7 +1,6 @@
 # 01_jel_core.R
 # Core estimators for simultaneous JEL inference with ordered three-class VUS.
-# Base R only. The implementation supports strict scores and deterministic ties.
-#
+
 # Tie convention:
 #   kappa(x,y,z) = 1        if x < y < z
 #                = 1/2      if x = y < z or x < y = z
