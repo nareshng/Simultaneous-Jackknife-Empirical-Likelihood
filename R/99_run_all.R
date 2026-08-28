@@ -27,7 +27,7 @@ run("00_self_check.R")
 
 if (mode=="real") {
   run("03_real_data_application.R",
-      env=c("RETUNE=true","REAL_B_MULT=19999","OUTPUT_SUFFIX=_R"))
+      env=c("RETUNE=true","REAL_B_MULT=20000","OUTPUT_SUFFIX=_R"))
 } else if (mode=="quick") {
   common <- c(
     "RETUNE=false","REAL_B_MULT=400","R_REPS=200","B_MULT=400",
