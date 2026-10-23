@@ -314,3 +314,4 @@ ordinal_score_from_probabilities <- function(prob) {
   prob <- as.matrix(prob)
   drop(prob %*% (0:(ncol(prob) - 1L)))
 }
+

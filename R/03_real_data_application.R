@@ -5,12 +5,28 @@
 #
 
 
-script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
-if (is.na(script_file) || !nzchar(script_file)) {
-  package_root <- normalizePath(getwd())
-} else {
-  package_root <- normalizePath(file.path(dirname(script_file), ".."))
+.jel_find_root <- function() {
+  explicit <- Sys.getenv("JEL_PROJECT_ROOT", unset = "")
+  ofiles <- unlist(lapply(sys.frames(), function(frame) {
+    value <- frame$ofile
+    if (is.null(value)) character() else as.character(value)
+  }), use.names = FALSE)
+  cli <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+  # Rscript represents spaces as ~+~ in the --file command-line argument.
+  cli <- gsub("~+~", " ", cli, fixed = TRUE)
+  starts <- c(explicit, dirname(rev(ofiles)), dirname(cli), getwd())
+  for (start in starts[nzchar(starts)]) {
+    candidate <- normalizePath(start, mustWork = FALSE)
+    for (up in 0:2) {
+      if (file.exists(file.path(candidate, "R", "01_jel_core.R"))) {
+        return(normalizePath(candidate, mustWork = TRUE))
+      }
+      candidate <- dirname(candidate)
+    }
+  }
+  stop("Cannot locate the project root. Set JEL_PROJECT_ROOT to its absolute path.")
 }
+package_root <- .jel_find_root()
 source(file.path(package_root, "R", "01_jel_core.R"))
 source(file.path(package_root, "R", "02_models.R"))
 
@@ -20,10 +36,38 @@ figures_dir <- file.path(package_root, "figures")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
-retune <- tolower(Sys.getenv("RETUNE", "true")) %in% c("1", "true", "yes")
-Bmult <- as.integer(Sys.getenv("REAL_B_MULT", "19999"))
+boolean_env <- function(name, default) {
+  value <- tolower(Sys.getenv(name, default))
+  if (!value %in% c("1", "true", "yes", "0", "false", "no")) {
+    stop(name, " must be true or false.")
+  }
+  value %in% c("1", "true", "yes")
+}
+integer_env <- function(name, default, lower = 1L) {
+  raw <- Sys.getenv(name, default)
+  number <- suppressWarnings(as.numeric(raw))
+  if (length(number) != 1L || !is.finite(number) ||
+      number != floor(number) || number < lower || number > .Machine$integer.max) {
+    stop(name, " must be an integer >= ", lower, ".")
+  }
+  as.integer(number)
+}
+retune <- boolean_env("RETUNE", "true")
+Bmult <- integer_env("REAL_B_MULT", "20000")
 suffix <- Sys.getenv("OUTPUT_SUFFIX", "_R")
-seed <- 2026L
+seed <- integer_env("REAL_SEED", "2026", lower = 0L)
+alpha <- suppressWarnings(as.numeric(Sys.getenv("ALPHA", "0.05")))
+if (length(alpha) != 1L || !is.finite(alpha) || alpha <= 0 || alpha >= 1) {
+  stop("ALPHA must lie strictly between zero and one.")
+}
+if (getRversion() < "3.6.0") stop("R >= 3.6.0 is required for the pinned sample RNG.")
+RNGkind(kind = "Mersenne-Twister", normal.kind = "Inversion", sample.kind = "Rejection")
+if (!retune) {
+  warning("RETUNE=false: fixed hyperparameters are used; no CV loss is recomputed. ",
+          "Training_CV_log_loss will be NA, not a manuscript reference constant.")
+}
+writeLines(capture.output(sessionInfo()),
+  file.path(results_dir, paste0("real_data_session_info", suffix, ".txt")))
 
 dat <- utils::read.csv(data_file, stringsAsFactors = FALSE, check.names = FALSE)
 required <- c(
@@ -35,13 +79,16 @@ if (!all(required %in% names(dat))) {
 }
 
 predictors <- c("age", "creatinine", "LYVE1", "REG1B", "TFF1")
-if (anyNA(dat[, predictors])) {
+if (anyNA(dat[, predictors]) || any(!is.finite(as.matrix(dat[, predictors])))) {
   stop("The five prespecified predictors must be complete.")
 }
 if (any(dat[, c("creatinine", "LYVE1", "REG1B", "TFF1")] <= 0)) {
   stop("Biomarker variables to be log transformed must be strictly positive.")
 }
 
+if (anyNA(dat$sample_id) || any(!nzchar(trimws(dat$sample_id))) || anyDuplicated(dat$sample_id)) {
+  stop("sample_id must be complete and unique across both cohorts.")
+}
 train <- dat$patient_cohort == 1
 test <- dat$patient_cohort == 2
 if (!all(train | test) || any(train & test)) stop("Unexpected cohort coding.")
@@ -71,12 +118,13 @@ fixed_hyper <- list(
   rbf_krr = list(gamma = 0.08, lambda = 0.1),
   weighted_knn = list(k = 25L)
 )
-reference_cv <- c(
-  ridge_multinomial = 0.844,
-  regularized_qda = 0.894,
-  rbf_krr = 0.946,
-  weighted_knn = 0.821
-)
+if (retune) {
+  folds <- make_stratified_folds(y_train, v = 5L, seed = seed)
+  utils::write.csv(data.frame(sample_id = dat$sample_id[train],
+    diagnosis = dat$diagnosis[train], fold = folds),
+    file.path(results_dir, paste0("real_data_training_folds", suffix, ".csv")),
+    row.names = FALSE)
+}
 
 fits <- list()
 probabilities <- list()
@@ -101,7 +149,7 @@ for (m in methods) {
     cv_summaries[[m]] <- cv
   } else {
     hyper <- fixed_hyper[[m]]
-    cv_loss <- reference_cv[[m]]
+    cv_loss <- NA_real_
   }
 
   fitted <- fit_classifier(train_df, y_train, m, hyper)
@@ -119,6 +167,7 @@ for (m in methods) {
       paste(names(hyper), unlist(hyper), sep = "="), collapse = "; "
     ),
     Training_CV_log_loss = cv_loss,
+    Hyperparameter_source = if (retune) "five-fold cohort-1 CV" else "fixed; CV not run",
     Heldout_accuracy = classification_accuracy(prob, y_test),
     Heldout_log_loss = multiclass_log_loss(prob, y_test),
     stringsAsFactors = FALSE
@@ -129,16 +178,16 @@ score_matrix <- do.call(cbind, lapply(probabilities, ordinal_score_from_probabil
 colnames(score_matrix) <- unname(display_names[methods])
 scores_by_class <- lapply(0:2, function(cls) score_matrix[y_test == cls, , drop = FALSE])
 jel <- vus_and_pseudovalues(scores_by_class, ties = TRUE)
-global <- jel_global_test(jel$theta_hat, jel$pseudo_values)
-global_wald <- wald_global_test(jel$theta_hat, jel$pseudo_values)
+global <- jel_global_test(jel$theta_hat, jel$pseudo_values, alpha = alpha)
+global_wald <- wald_global_test(jel$theta_hat, jel$pseudo_values, alpha = alpha, ns = jel$ns)
 pair <- jel_pairwise_tests(jel$theta_hat, jel$pseudo_values)
 maxcal <- max_jel_calibration(
   jel$theta_hat, jel$pseudo_values, jel$ns,
-  alpha = 0.05, B = Bmult, seed = seed
+  alpha = alpha, B = Bmult, seed = seed
 )
 ci <- jel_simultaneous_intervals(
   jel$theta_hat, jel$pseudo_values, jel$ns,
-  alpha = 0.05, B = Bmult, seed = seed, method = "maxJEL"
+  alpha = alpha, B = Bmult, seed = seed, method = "maxJEL"
 )
 
 perf <- do.call(rbind, performance)
@@ -161,6 +210,18 @@ utils::write.csv(
   file.path(results_dir, paste0("real_data_heldout_scores", suffix, ".csv")),
   row.names = FALSE
 )
+
+prob_output <- data.frame(sample_id = dat$sample_id[test], ordered_class = y_test)
+for (m in methods) {
+  for (cls in 0:2) prob_output[[paste0(m, "_p", cls)]] <- probabilities[[m]][, cls + 1L]
+}
+utils::write.csv(prob_output,
+  file.path(results_dir, paste0("real_data_heldout_probabilities", suffix, ".csv")),
+  row.names = FALSE)
+saveRDS(list(fits = fits, cross_validation = cv_summaries,
+             training_sample_ids = dat$sample_id[train], seed = seed,
+             alpha = alpha, multiplier_draws = Bmult, retuned = retune),
+  file.path(results_dir, paste0("real_data_fitted_models", suffix, ".rds")))
 
 pair$Classifier_A <- unname(display_names[methods[pair$classifier_a]])
 pair$Classifier_B <- unname(display_names[methods[pair$classifier_b]])
@@ -196,14 +257,27 @@ global_lines <- c(
   sprintf("Global Wald statistic: %.10f", global_wald$statistic),
   sprintf("Global Wald df: %d", global_wald$df),
   sprintf("Global Wald p-value: %.10g", global_wald$p_value),
+  sprintf("Training-only CV rerun: %s", retune),
+  sprintf("Application seed: %d", seed),
+  sprintf("Nominal alpha: %.10g", alpha),
   sprintf("Max-JEL multiplier draws: %d", Bmult),
   sprintf("Max-JEL critical value: %.10f", unique(maxcal$critical_value)),
-  "Inference target: conditional on the fitted classifiers and held-out cohort."
+  "Inference target: conditional on the fitted classifiers; held-out evaluation distribution.",
+  "Unique sample IDs do not establish person-level independence."
 )
 writeLines(
   global_lines,
   file.path(results_dir, paste0("real_data_global_test", suffix, ".txt"))
 )
+
+writeLines(c(global_lines,
+  sprintf("RUN_ID=%s", Sys.getenv("JEL_RUN_ID", "direct-script")),
+  sprintf("DATA_MD5=%s", unname(tools::md5sum(data_file))),
+  "RNGkind=Mersenne-Twister; Inversion; Rejection",
+  "CV criterion=unweighted mean of five fold-average clipped multiclass log losses",
+  "RETUNE=false produces NA CV losses; reference constants are never reported.",
+  capture.output(sessionInfo())),
+  file.path(results_dir, paste0("real_data_run_metadata", suffix, ".txt")))
 
 # Data-audit table documents missingness and the strict cohort separation.
 audit <- data.frame(
@@ -241,6 +315,7 @@ png(
   file.path(figures_dir, paste0("fig4_pairwise_intervals", suffix, ".png")),
   width = 1900, height = 1250, res = 180
 )
+op <- par(mar = c(5, 16, 3, 1))
 labels <- paste(pair_out$Classifier_A, "-", pair_out$Classifier_B)
 ord <- rev(seq_len(nrow(pair_out)))
 xlim <- range(c(pair_out$max_JEL_CI_lower, pair_out$max_JEL_CI_upper, 0))
@@ -248,7 +323,7 @@ plot(
   pair_out$VUS_difference_A_minus_B[ord], seq_along(ord),
   xlim = xlim + c(-0.02, 0.02), ylim = c(0.5, length(ord) + 0.5),
   yaxt = "n", ylab = "", xlab = "VUS difference (A - B)",
-  pch = 19, main = "95% simultaneous max-JEL intervals"
+  pch = 19, main = sprintf("%.1f%% simultaneous max-JEL intervals", 100 * (1 - alpha))
 )
 segments(
   pair_out$max_JEL_CI_lower[ord], seq_along(ord),
@@ -257,6 +332,8 @@ segments(
 )
 axis(2, at = seq_along(ord), labels = labels[ord], las = 2, cex.axis = 0.75)
 abline(v = 0, lty = 2)
+par(op)
 dev.off()
 
 message("Real-data analysis completed. Outputs written to ", results_dir)
+

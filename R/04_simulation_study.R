@@ -7,12 +7,17 @@
 
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
-if (is.na(script_file) || !nzchar(script_file)) {
+script_file <- gsub("~+~", " ", script_file, fixed=TRUE)
+explicit_root <- Sys.getenv("JEL_PROJECT_ROOT", "")
+if (nzchar(explicit_root)) {
+  package_root <- normalizePath(explicit_root, mustWork=TRUE)
+} else if (is.na(script_file) || !nzchar(script_file)) {
   package_root <- normalizePath(getwd())
 } else {
   package_root <- normalizePath(file.path(dirname(script_file), ".."))
 }
 source(file.path(package_root, "R", "01_jel_core.R"))
+RNGkind("Mersenne-Twister", "Inversion", "Rejection")
 
 results_dir <- file.path(package_root, "results")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -115,7 +120,7 @@ evaluate_replicate <- function(scores, s, replicate_seed) {
   ans <- tryCatch({
     jel <- vus_and_pseudovalues(scores, ties = TRUE)
     global <- jel_global_test(jel$theta_hat, jel$pseudo_values, alpha)
-    global_wald <- wald_global_test(jel$theta_hat, jel$pseudo_values, alpha)
+    global_wald <- wald_global_test(jel$theta_hat, jel$pseudo_values, alpha, ns = jel$ns)
     pair <- jel_pairwise_tests(jel$theta_hat, jel$pseudo_values)
     maxcal <- max_jel_calibration(
       jel$theta_hat, jel$pseudo_values, jel$ns,
@@ -136,6 +141,16 @@ evaluate_replicate <- function(scores, s, replicate_seed) {
     max_star <- apply(abs(Zstar), 1L, max)
     wald_critical <- as.numeric(stats::quantile(max_star, 1 - alpha, type = 1L))
     wald_reject <- abs(wald_t) > wald_critical
+    # Undefined solver output is a failed replicate, never a nonrejection.
+    required_finite <- c(global$statistic, global$p_value,
+      global_wald$statistic, global_wald$p_value, pair$statistic,
+      pair$p_value, pair$holm_p, maxcal$signed_root,
+      maxcal$critical_value, maxcal$adjusted_p, wald_t, wald_critical)
+    if (any(!is.finite(required_finite)) || any(sdev <= 0) ||
+        anyNA(c(global$reject, global_wald$reject, maxcal$reject)) ||
+        !isTRUE(global_wald$full_rank)) {
+      stop("Undefined inference or nonconverged solver in main simulation")
+    }
 
     raw_reject <- pair$p_value < alpha
     holm_reject <- pair$holm_p < alpha
@@ -226,10 +241,14 @@ run_scenario <- function(s, scenario_index) {
       Estimate = unname(z["estimate"]), MCSE = unname(z["mcse"]),
       Valid_replicates = as.integer(z["n_valid"]),
       Total_replicates = Rreps,
+      Failure_worst_case_low = sum(M[[v]], na.rm=TRUE)/Rreps,
+      Failure_worst_case_high = (sum(M[[v]], na.rm=TRUE)+Rreps-sum(is.finite(M[[v]])))/Rreps,
       Numerical_failures = sum(M$numerical_failure == 1, na.rm = TRUE),
       stringsAsFactors = FALSE
     )
   }))
+  if (any(M$numerical_failure == 1L)) warning(s$id,
+    ": failed replications excluded; valid counts and worst-case failure bounds are reported.")
   message("Completed ", s$id)
   agg
 }
@@ -260,3 +279,4 @@ writeLines(
   file.path(results_dir, paste0("simulation_run_metadata", suffix, ".txt"))
 )
 message("All simulation scenarios completed.")
+

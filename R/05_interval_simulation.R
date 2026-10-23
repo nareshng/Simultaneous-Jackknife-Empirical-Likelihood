@@ -6,17 +6,24 @@
 
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1L])
-if (is.na(script_file) || !nzchar(script_file)) {
+script_file <- gsub("~+~", " ", script_file, fixed=TRUE)
+explicit_root <- Sys.getenv("JEL_PROJECT_ROOT", "")
+if (nzchar(explicit_root)) {
+  package_root <- normalizePath(explicit_root, mustWork=TRUE)
+} else if (is.na(script_file) || !nzchar(script_file)) {
   package_root <- normalizePath(getwd())
 } else {
   package_root <- normalizePath(file.path(dirname(script_file), ".."))
 }
 source(file.path(package_root, "R", "01_jel_core.R"))
+RNGkind("Mersenne-Twister", "Inversion", "Rejection")
 
 results_dir <- file.path(package_root, "results")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
 Bmult <- as.integer(Sys.getenv("B_MULT", "2000"))
+alpha <- as.numeric(Sys.getenv("ALPHA", "0.05"))
+if (!is.finite(alpha) || alpha <= 0 || alpha >= 1) stop("ALPHA must be in (0,1).")
 cores <- as.integer(Sys.getenv("MC_CORES", "1"))
 master_seed <- as.integer(Sys.getenv("INT_SEED", "2026"))
 suffix <- Sys.getenv("OUTPUT_SUFFIX", "_R")
@@ -85,12 +92,19 @@ run_one <- function(s, ss) {
       fit <- vus_and_pseudovalues(scores, ties=TRUE)
       max_ci <- jel_simultaneous_intervals(
         fit$theta_hat, fit$pseudo_values, fit$ns,
-        alpha=.05, B=Bmult, seed=seeds[rr]+500000L, method="maxJEL"
+        alpha=alpha, B=Bmult, seed=seeds[rr]+500000L, method="maxJEL"
       )
       bonf_ci <- jel_simultaneous_intervals(
         fit$theta_hat, fit$pseudo_values, fit$ns,
-        alpha=.05, B=Bmult, seed=seeds[rr]+500000L, method="bonferroni"
+        alpha=alpha, B=Bmult, seed=seeds[rr]+500000L, method="bonferroni"
       )
+      # Validate all endpoints before declaring a replication successful.
+      # Otherwise NA endpoints silently change denominators under na.rm=TRUE.
+      endpoints <- c(max_ci$lower, max_ci$upper, bonf_ci$lower, bonf_ci$upper)
+      if (any(!is.finite(endpoints)) || any(max_ci$lower > max_ci$upper) ||
+          any(bonf_ci$lower > bonf_ci$upper)) {
+        stop("Nonfinite or invalid profile interval endpoints")
+      }
       c(
         replicate=rr, seed=seeds[rr], failure=0,
         max_coverage=as.numeric(all(truth >= max_ci$lower & truth <= max_ci$upper)),
@@ -116,12 +130,18 @@ run_one <- function(s, ss) {
     M, file.path(results_dir,paste0("interval_replicates_",s$id,suffix,".csv")),
     row.names=FALSE
   )
-  nvalid <- sum(M$failure==0)
+  nvalid <- sum(M$failure==0 & is.finite(M$max_coverage) & is.finite(M$bonf_coverage))
+  nfailed <- nrow(M)-nvalid
+  if (nfailed) warning(s$id, ": failed interval replications excluded; counts and worst-case coverage bounds are reported.")
   pmax <- mean(M$max_coverage,na.rm=TRUE)
   pbonf <- mean(M$bonf_coverage,na.rm=TRUE)
   data.frame(
     ScenarioID=s$id, Replications=s$reps, Valid_replicates=nvalid,
-    Numerical_failures=sum(M$failure==1),
+    Numerical_failures=nfailed,
+    Max_coverage_worst_case_low=sum(M$max_coverage,na.rm=TRUE)/nrow(M),
+    Max_coverage_worst_case_high=(sum(M$max_coverage,na.rm=TRUE)+nfailed)/nrow(M),
+    Bonferroni_coverage_worst_case_low=sum(M$bonf_coverage,na.rm=TRUE)/nrow(M),
+    Bonferroni_coverage_worst_case_high=(sum(M$bonf_coverage,na.rm=TRUE)+nfailed)/nrow(M),
     Max_JEL_simultaneous_coverage=pmax,
     Max_JEL_coverage_MCSE=sqrt(pmax*(1-pmax)/nvalid),
     Bonferroni_JEL_simultaneous_coverage=pbonf,
@@ -138,3 +158,4 @@ utils::write.csv(
   row.names=FALSE
 )
 message("Interval simulation completed.")
+

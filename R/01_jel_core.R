@@ -225,27 +225,49 @@ jel_global_test <- function(theta_hat, pseudo_values, alpha = 0.05) {
   K <- length(theta_hat)
   C <- global_contrast_matrix(K)
   G <- pseudo_values %*% t(C)
-  stat <- el_mean_statistic(G)
+  details <- el_mean_statistic(G, return_details = TRUE)
+  stat <- details$statistic
   list(
     statistic = stat,
     df = K - 1L,
     p_value = if (is.finite(stat)) stats::pchisq(stat, K - 1L, lower.tail = FALSE) else NA_real_,
-    reject = is.finite(stat) && stat > stats::qchisq(1 - alpha, K - 1L),
+    # A failed numerical solve is not evidence for accepting the null.
+    reject = if (is.finite(stat)) stat > stats::qchisq(1 - alpha, K - 1L) else NA,
+    converged = isTRUE(details$converged) && is.finite(stat),
+    reason = details$reason,
+    iterations = details$iterations,
     contrast = C
   )
 }
 
-wald_global_test <- function(theta_hat, pseudo_values, alpha = 0.05) {
+wald_global_test <- function(theta_hat, pseudo_values, alpha = 0.05, ns = NULL) {
   K <- length(theta_hat)
   C <- global_contrast_matrix(K)
   delta <- as.vector(C %*% theta_hat)
   G <- pseudo_values %*% t(C)
-  S <- crossprod(scale(G, center = TRUE, scale = FALSE)) / nrow(G)
+  if (is.null(ns)) {
+    warning(paste(
+      "wald_global_test called without class sizes ns: using legacy overall-mean",
+      "centering. For unequal classes and nonzero contrasts, pass ns for the",
+      "class-factor-centered covariance required by the revised theory."
+    ), call. = FALSE)
+    G <- scale(G, center = TRUE, scale = FALSE)
+    centering <- "legacy overall-mean (ns omitted)"
+  } else {
+    a <- pooled_centering_vector(ns)
+    if (length(a) != nrow(G)) stop("Class sizes ns do not sum to the number of pseudo-values.")
+    G <- G - a %o% delta
+    centering <- "class-factor a_s"
+  }
+  S <- crossprod(G) / nrow(G)
   eig <- eigen((S + t(S)) / 2, symmetric = TRUE)
   keep <- eig$values > max(eig$values) * 1e-10
   rank <- sum(keep)
   if (rank == 0L) {
-    return(list(statistic = NA_real_, df = 0L, p_value = NA_real_, reject = NA))
+    return(list(statistic = NA_real_, df = 0L, p_value = NA_real_, reject = NA,
+                rank = rank, full_rank = FALSE, centering = centering,
+                eigenvalues = eig$values, covariance = S,
+                reason = "zero effective covariance rank"))
   }
   Sinv <- eig$vectors[, keep, drop = FALSE] %*%
     diag(1 / eig$values[keep], rank, rank) %*%
@@ -255,7 +277,13 @@ wald_global_test <- function(theta_hat, pseudo_values, alpha = 0.05) {
     statistic = stat,
     df = rank,
     p_value = stats::pchisq(stat, rank, lower.tail = FALSE),
-    reject = stat > stats::qchisq(1 - alpha, rank)
+    reject = stat > stats::qchisq(1 - alpha, rank),
+    rank = rank,
+    full_rank = rank == nrow(C),
+    centering = centering,
+    eigenvalues = eig$values,
+    covariance = S,
+    reason = if (rank == nrow(C)) "full-rank covariance" else "rank-deficient covariance: reduced-rank calculation outside full-rank theorem"
   )
 }
 
@@ -337,48 +365,80 @@ max_jel_calibration <- function(theta_hat, pseudo_values, ns,
 jel_profile_interval <- function(vcontrast, a, estimate, critical,
                                  lower_bound = -1, upper_bound = 1,
                                  grid_size = 401L, tol = 1e-8) {
-  vcontrast <- as.numeric(vcontrast)
-  a <- as.numeric(a)
-  if (length(vcontrast) != length(a)) stop("vcontrast and a must have equal length.")
+  # grid_size is retained for API compatibility. A fixed grid can collapse a
+  # valid narrow interval to a point; endpoints are now found adaptively.
+  vcontrast <- as.numeric(vcontrast); a <- as.numeric(a)
+  if (length(vcontrast) != length(a) || !length(a) ||
+      any(!is.finite(c(vcontrast, a, estimate, critical, lower_bound, upper_bound))) ||
+      lower_bound >= upper_bound || estimate < lower_bound || estimate > upper_bound || critical <= 0) {
+    stop("Invalid finite inputs to profile interval inversion.")
+  }
   target <- critical^2
-  stat_at <- function(delta0) {
-    el_mean_statistic(matrix(vcontrast - a * delta0, ncol = 1L))
+  scalar_stat <- function(g) {
+    magnitude <- max(abs(g))
+    if (magnitude == 0) return(0)
+    z <- g / magnitude
+    if (min(z) >= 0 || max(z) <= 0) return(Inf)
+    if (abs(sum(z)) <= 1e-13 * length(z)) return(0)
+    lower <- (-1 / max(z)) * (1 - 1e-12)
+    upper <- (-1 / min(z)) * (1 - 1e-12)
+    lambda <- tryCatch(stats::uniroot(function(t) sum(z / (1 + t * z)),
+      c(lower, upper), tol = 1e-12, maxiter = 1000L)$root,
+      error = function(e) stop("Scalar profile EL root failed: ", conditionMessage(e)))
+    den <- 1 + lambda * z
+    if (any(!is.finite(den)) || any(den <= 0)) stop("Invalid scalar profile EL solution.")
+    max(0, 2 * sum(log(den)))
   }
-  f <- function(delta0) stat_at(delta0) - target
-
-  grid <- sort(unique(c(
-    seq(lower_bound, upper_bound, length.out = grid_size),
-    max(lower_bound, min(upper_bound, estimate))
-  )))
-  vals <- vapply(grid, f, numeric(1L))
-  inside <- is.finite(vals) & vals <= 0
-  if (!any(inside)) return(c(lower = NA_real_, upper = NA_real_))
-
-  i0 <- which.min(abs(grid - estimate))
-  if (!inside[i0]) {
-    i0 <- which(inside)[which.min(abs(grid[inside] - estimate))]
+  # The high-likelihood weight set is convex. If it cannot include p'a=0,
+  # its ratio image p'v/(p'a) is an interval containing the supplied estimate.
+  # Otherwise global connectedness is not certified: flag rather than return
+  # arbitrary endpoints from a grid or skip a disconnected component.
+  denominator_lr <- scalar_stat(a)
+  if (is.finite(denominator_lr) && denominator_lr <= target + 1e-7) {
+    stop("Profile denominator can change sign within the likelihood cutoff; connected interval inversion is not certified.")
   }
-
-  left_idx <- i0
-  while (left_idx > 1L && inside[left_idx - 1L]) left_idx <- left_idx - 1L
-  right_idx <- i0
-  while (right_idx < length(grid) && inside[right_idx + 1L]) right_idx <- right_idx + 1L
-
-  lower <- grid[left_idx]
-  if (left_idx > 1L && is.finite(vals[left_idx - 1L])) {
-    lower <- tryCatch(
-      stats::uniroot(f, c(grid[left_idx - 1L], grid[left_idx]), tol = tol)$root,
-      error = function(e) grid[left_idx]
-    )
+  stat_at <- function(d) scalar_stat(vcontrast - a * d)
+  center_stat <- stat_at(estimate)
+  if (!is.finite(center_stat) || center_stat > target + 1e-7) stop("Estimate is not inside its profile confidence set.")
+  residual <- vcontrast - a * estimate
+  information_scale <- sqrt(mean(residual^2) / length(residual)) / abs(mean(a))
+  if (!is.finite(information_scale) || information_scale <= 0) stop("Zero or undefined contrast scale in profile inversion.")
+  initial <- min((upper_bound - lower_bound) / 16, max(critical * information_scale / 4,
+    32 * .Machine$double.eps * max(1, abs(estimate))))
+  cutoff_tolerance <- max(1e-7, 1e-7 * target)
+  endpoint <- function(direction, bound) {
+    if (estimate == bound) return(bound)
+    inside <- estimate; distance <- initial; outside <- NA_real_
+    for (iteration in seq_len(200L)) {
+      candidate <- if (direction < 0) max(bound, estimate - distance) else min(bound, estimate + distance)
+      f <- stat_at(candidate) - target
+      if (is.finite(f) && f <= 0) {
+        inside <- candidate
+        if (candidate == bound) return(bound)
+        distance <- min(2 * distance, upper_bound - lower_bound)
+      } else {
+        outside <- candidate
+        break
+      }
+    }
+    if (!is.finite(outside)) stop("Could not bracket a profile endpoint.")
+    for (iteration in seq_len(200L)) {
+      middle <- inside + (outside - inside) / 2
+      if (middle == inside || middle == outside) break
+      f <- stat_at(middle) - target
+      if (is.finite(f) && abs(f) <= cutoff_tolerance) return(middle)
+      if (!is.finite(f) || f > 0) outside <- middle else inside <- middle
+    }
+    candidate <- inside + (outside - inside) / 2
+    attained <- stat_at(candidate)
+    if (!is.finite(attained) || abs(attained - target) > 10 * cutoff_tolerance) {
+      stop("Profile endpoint could not attain the likelihood cutoff to numerical tolerance.")
+    }
+    candidate
   }
-  upper <- grid[right_idx]
-  if (right_idx < length(grid) && is.finite(vals[right_idx + 1L])) {
-    upper <- tryCatch(
-      stats::uniroot(f, c(grid[right_idx], grid[right_idx + 1L]), tol = tol)$root,
-      error = function(e) grid[right_idx]
-    )
-  }
-  c(lower = lower, upper = upper)
+  ans <- c(lower = endpoint(-1, lower_bound), upper = endpoint(1, upper_bound))
+  if (any(!is.finite(ans)) || ans[1L] > estimate || ans[2L] < estimate) stop("Invalid local profile endpoints.")
+  ans
 }
 
 jel_simultaneous_intervals <- function(theta_hat, pseudo_values, ns,
@@ -432,3 +492,4 @@ jel_self_check <- function() {
   if (err > 5e-8) stop("Self-check failed.")
   invisible(TRUE)
 }
+
