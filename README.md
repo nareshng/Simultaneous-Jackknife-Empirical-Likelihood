@@ -119,10 +119,3 @@ At present, `R/06_make_figures.R` expects `simulation_null_results*.csv` and `si
 - The complete pairwise contrast vector has rank `K - 1`, so its covariance is structurally singular. The multiplier procedure avoids inverting this full covariance matrix.
 - Severe class imbalance can invalidate asymptotic calibration. The manuscript's setting with only 10 observations in one class shows material size distortion.
 
-## Citation
-
-Please cite the accompanying simultaneous-inference manuscript when a public bibliographic record becomes available. The underlying multivariate three-sample JEL construction is described in:
-
-> Garg N, Mathew L, Dewan I, Kattumannil SK. (2024; revised 2025). Jackknife empirical likelihood method for U statistics based on multivariate samples and its applications. arXiv:2408.14038v2. https://doi.org/10.48550/arXiv.2408.14038
-
-
