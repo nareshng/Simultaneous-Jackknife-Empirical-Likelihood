@@ -2,12 +2,14 @@
 # Base R only: no classifier fitting, tuning, or simulation.
 #
 # Run from your analysis project directory:
-#   Rscript 09_application_diagnostics.R
+#   Rscript R/10_application_diagnostics.R
 # Or specify input and an optional output directory:
-#   Rscript 09_application_diagnostics.R path/to/scores.csv path/to/output
+#   Rscript R/10_application_diagnostics.R path/to/scores.csv path/to/output
 #
-# Default input: results/real_data_heldout_scores_full_R.csv
-# Default output: application_diagnostics_full_R/ beside the input.
+# Default input: results/real_data_heldout_scores{OUTPUT_SUFFIX}.csv
+# Standalone OUTPUT_SUFFIX default: _full_R (the completed manuscript run).
+# The workflow driver passes explicit input/output paths for its own suffix.
+# Default output: application_diagnostics{input suffix}/ beside the input.
 # The VUS routine below is copied unchanged from the supplied
 # revised_R_analysis/R/01_jel_core.R.
 
@@ -95,6 +97,19 @@ vus_and_pseudovalues <- function(scores_by_class, ties = TRUE) {
 
 run_application_diagnostics <- function(input_file, output_dir = NULL) {
   if (!file.exists(input_file)) stop("Saved score file not found: ", input_file)
+  # Match companion tables to this score file, never to an older run.
+  score_name <- basename(input_file)
+  score_pattern <- "^real_data_heldout_scores(.*)[.]csv$"
+  input_suffix <- if (grepl(score_pattern, score_name)) {
+    sub(score_pattern, "\\1", score_name)
+  } else NULL
+  companion_file <- function(stem) {
+    if (is.null(input_suffix)) return(NA_character_)
+    file.path(dirname(input_file), paste0(stem, input_suffix, ".csv"))
+  }
+  if (is.null(input_suffix)) {
+    message("Nonstandard score filename: companion-output consistency checks skipped.")
+  }
   dat <- utils::read.csv(input_file, check.names = FALSE,
                          stringsAsFactors = FALSE)
   methods <- c("Ridge multinomial", "Regularized QDA",
@@ -186,8 +201,8 @@ run_application_diagnostics <- function(input_file, output_dir = NULL) {
 
   # Verify consistency with saved application outputs when they are present.
   checks <- character()
-  pair_file <- file.path(dirname(input_file), "real_data_pairwise_inference_full_R.csv")
-  if (file.exists(pair_file)) {
+  pair_file <- companion_file("real_data_pairwise_inference")
+  if (!is.na(pair_file) && file.exists(pair_file)) {
     old <- utils::read.csv(pair_file, check.names = FALSE, stringsAsFactors = FALSE)
     required_old <- c("Classifier_A", "Classifier_B", "VUS_difference_A_minus_B")
     if (!all(required_old %in% names(old))) stop("Unexpected saved pairwise columns.")
@@ -201,8 +216,8 @@ run_application_diagnostics <- function(input_file, output_dir = NULL) {
     }
     checks <- c(checks, sprintf("Six saved VUS differences matched; maximum error %.3e.", err))
   }
-  perf_file <- file.path(dirname(input_file), "real_data_model_performance_full_R.csv")
-  if (file.exists(perf_file)) {
+  perf_file <- companion_file("real_data_model_performance")
+  if (!is.na(perf_file) && file.exists(perf_file)) {
     old <- utils::read.csv(perf_file, check.names = FALSE, stringsAsFactors = FALSE)
     if (!all(c("Classifier", "Heldout_VUS") %in% names(old))) {
       stop("Unexpected saved performance columns.")
@@ -217,7 +232,9 @@ run_application_diagnostics <- function(input_file, output_dir = NULL) {
   }
 
   if (is.null(output_dir)) {
-    output_dir <- file.path(dirname(input_file), "application_diagnostics_full_R")
+    output_name <- paste0("application_diagnostics",
+                          if (is.null(input_suffix)) "" else input_suffix)
+    output_dir <- file.path(dirname(input_file), output_name)
   }
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(result, file.path(output_dir, "application_diagnostics.csv"),
@@ -294,12 +311,15 @@ run_application_diagnostics <- function(input_file, output_dir = NULL) {
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) > 2L) {
-  stop("Usage: Rscript 09_application_diagnostics.R [scores.csv] [output_directory]")
+  stop("Usage: Rscript R/10_application_diagnostics.R [scores.csv] [output_directory]")
 }
-default_input <- file.path("results", "real_data_heldout_scores_full_R.csv")
+default_suffix <- Sys.getenv("OUTPUT_SUFFIX", unset = "_full_R")
+default_input <- file.path("results", paste0(
+  "real_data_heldout_scores", default_suffix, ".csv"))
 if (!file.exists(default_input) && file.exists(basename(default_input))) {
   default_input <- basename(default_input)
 }
 input_file <- if (length(args) >= 1L) args[1L] else default_input
 output_dir <- if (length(args) >= 2L) args[2L] else NULL
 run_application_diagnostics(input_file, output_dir)
+

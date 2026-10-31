@@ -80,6 +80,13 @@ run_jel_workflow <- function(mode = "real", project_root = .jel_driver_root) {
               "05_interval_simulation.R", "06_make_figures.R",
               "07_revision_simulations.R", "08_revision_figures.R")
   )
+  # Generate diagnostics immediately after the matching application output.
+  # Check and revision modes do not run the application and skip this stage.
+  application_stage <- match("03_real_data_application.R", selected)
+  if (!is.na(application_stage)) {
+    selected <- append(selected, "10_application_diagnostics.R",
+                       after = application_stage)
+  }
   # Independent deterministic numerical validation runs once per workflow.
   selected <- append(selected, "09_validate_revision.R", after = 1L)
   scripts <- file.path(project_root, "R", selected)
@@ -128,7 +135,15 @@ run_jel_workflow <- function(mode = "real", project_root = .jel_driver_root) {
     message("[", i, "/", length(selected), "] Running ", selected[i], "\n  Log: ", stage_log)
     # system2 quotes its executable; explicitly quote the script argument so
     # project paths containing spaces work on macOS, Linux and Windows.
-    status <- system2(command = rscript, args = c("--vanilla", shQuote(scripts[i])),
+    child_args <- c("--vanilla", shQuote(scripts[i]))
+    if (selected[i] == "10_application_diagnostics.R") {
+      score_file <- file.path(results_dir, paste0(
+        "real_data_heldout_scores", effective[["OUTPUT_SUFFIX"]], ".csv"))
+      diagnostics_dir <- file.path(results_dir, paste0(
+        "application_diagnostics", effective[["OUTPUT_SUFFIX"]]))
+      child_args <- c(child_args, shQuote(score_file), shQuote(diagnostics_dir))
+    }
+    status <- system2(command = rscript, args = child_args,
                       stdout = stage_log, stderr = stage_log, wait = TRUE)
     elapsed <- as.numeric(difftime(Sys.time(), started, units = "secs"))
     if (is.null(status)) status <- 0L
@@ -159,3 +174,4 @@ if (sys.nframe() == 0L) {
   selected_mode <- if (length(args)) args[1L] else Sys.getenv("RUN_MODE", "real")
   run_jel_workflow(selected_mode)
 }
+
