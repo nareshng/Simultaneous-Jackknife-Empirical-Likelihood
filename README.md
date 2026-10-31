@@ -29,6 +29,7 @@ Inference is conditional on the fitted scoring rules. Variability from drawing n
 | `R/07_revision_simulations.R` | Twelve additional imbalance, dependence, and classifier-count scenarios, paired power comparisons, and controlled timing |
 | `R/08_revision_figures.R` | Additional figures in PDF and PNG, and a TeX results table |
 | `R/09_validate_revision.R` | Independent numerical checks against enumeration, exact likelihood examples, and alternative reference calculations |
+| `R/10_application_diagnostics.R` | Class-centered contrast variances, influence maxima, omnibus covariance diagnostics, and a LaTeX table from saved application scores |
 | `R/99_run_all.R` | Terminal and RStudio workflow driver |
 
 ## Software requirements
@@ -96,11 +97,11 @@ Rscript R/99_run_all.R revision
 | Mode | Work performed after integrity and numerical validation |
 |---|---|
 | `check` | No application or full simulation study |
-| `quick` | Application and all experiment groups with reduced budgets |
-| `real` | Application only |
-| `original` | Application, 17 main scenarios, interval study, and main figures |
+| `quick` | Application, application diagnostics, and all experiment groups with reduced budgets |
+| `real` | Application and application diagnostics |
+| `original` | Application, application diagnostics, 17 main scenarios, interval study, and main figures |
 | `revision` | Twelve additional scenarios, timing study, and additional figures |
-| `full` | Application and all experiment groups and figures |
+| `full` | Application, application diagnostics, and all experiment groups and figures |
 
 Run the complete workflow with the manuscript output suffix on macOS or Linux:
 
@@ -131,6 +132,49 @@ run_jel_workflow("full")
 ```
 
 Sourcing the driver defines `run_jel_workflow()` without starting a long run. Existing environment variables override mode defaults; check that overrides from earlier experiments are appropriate before launching a full run. Leave `INT_REPS` unset to preserve the scenario-specific interval budgets.
+
+## Application diagnostics
+
+`R/10_application_diagnostics.R` runs immediately after the application in
+`real`, `original`, `quick`, and `full` modes. The driver passes the saved score
+file and output directory explicitly, using the same `OUTPUT_SUFFIX` as the
+application. The diagnostics are included in the stage logs and manifest.
+`check` and `revision` modes do not execute application diagnostics.
+
+For existing manuscript results, calculate only the diagnostics with:
+
+```bash
+Rscript R/10_application_diagnostics.R results/real_data_heldout_scores_full_R.csv
+```
+
+This reads the saved scores without refitting classifiers or rerunning
+simulations. By default, it writes:
+
+```text
+results/application_diagnostics_full_R/
+  application_diagnostics.csv
+  omnibus_covariance.csv
+  omnibus_contrast_matrix.csv
+  application_diagnostics_summary.txt
+  application_diagnostics_table.tex
+```
+
+For other runs, supply the matching score file. For example:
+
+```bash
+Rscript R/10_application_diagnostics.R results/real_data_heldout_scores_R.csv
+```
+
+The output directory and companion validation tables follow the input suffix.
+An optional second argument specifies a different output directory. With no
+arguments, the standalone script uses `OUTPUT_SUFFIX`, defaulting to `_full_R`.
+Run standalone commands from the repository root.
+
+The outputs report the six contrast variances, estimated standard errors,
+standardized influence maxima, and the covariance eigenvalues and condition
+number for the three contrasts against kNN. These are descriptive diagnostics;
+they do not establish finite-sample calibration or observation-deletion
+stability.
 
 ## Full-run budgets
 
@@ -185,6 +229,7 @@ Scripts create `results/` and `figures/` as needed. Outputs include:
 - Simultaneous interval coverage and mean length.
 - Cross-validation folds and losses, fitted models, held-out probabilities and scores, and classifier performance summaries.
 - Omnibus and pairwise JEL results, adjusted p-values, and simultaneous profile intervals.
+- Application contrast variances, influence maxima, omnibus covariance diagnostics, and a LaTeX diagnostics table.
 - Additional-simulation summaries, paired power gains, and timing measurements.
 - Four main PNG figures and three additional figures in both PDF and PNG, plus `revision_tables{suffix}.tex`.
 
@@ -209,3 +254,4 @@ These intervals describe Monte Carlo uncertainty in estimated simulation probabi
 - The theoretical guarantees are pointwise asymptotic results for fixed K, positive limiting class proportions, and the stated nondegeneracy conditions. They are not finite-sample guarantees or guarantees for increasing K.
 - Severe class imbalance can produce material size inflation and undercoverage. A class size of 10 fails in the reported examples; no universal minimum class size is established.
 - Passing `09_validate_revision.R` supports the numerical identities and data flow tested by that script. It does not prove statistical calibration for every population or validate clinical usefulness.
+
