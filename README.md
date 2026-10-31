@@ -165,16 +165,6 @@ For other runs, supply the matching score file. For example:
 Rscript R/10_application_diagnostics.R results/real_data_heldout_scores_R.csv
 ```
 
-The output directory and companion validation tables follow the input suffix.
-An optional second argument specifies a different output directory. With no
-arguments, the standalone script uses `OUTPUT_SUFFIX`, defaulting to `_full_R`.
-Run standalone commands from the repository root.
-
-The outputs report the six contrast variances, estimated standard errors,
-standardized influence maxima, and the covariance eigenvalues and condition
-number for the three contrasts against kNN. These are descriptive diagnostics;
-they do not establish finite-sample calibration or observation-deletion
-stability.
 
 ## Full-run budgets
 
